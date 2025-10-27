@@ -1,6 +1,4 @@
-// app.js - FIREBASE AUTH + GOOGLE DRIVE STORAGE
-const SUPABASE_URL = 'https://oiiqwxhkofutwvoypqwz.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9paXF3eGhrb2Z1dHd2b3lwcXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0OTE4NDYsImV4cCI6MjA3NzA2Nzg0Nn0.MT7uSSIFKRUJp4lpRlJ_JZGazpjSQPIIFsKoVjCGCbc';
+// app.js - FIREBASE AUTH + GOOGLE DRIVE STORAGE (VERSIÓN LIMPIA)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -18,10 +16,6 @@ const DRIVE_CLIENT_ID = '246398007101-dfe87if1n3hslp5ffo2ks6bkjflghgtl.apps.goog
 // Inicializar Firebase
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
-
-// Inicializar Supabase (solo para referencia)
-const { createClient } = supabase;
-const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Variables globales
 let songs = [];
