@@ -1,7 +1,3 @@
-// app.js - FIREBASE AUTH + GOOGLE DRIVE STORAGE
-const SUPABASE_URL = 'https://oiiqwxhkofutwvoypqwz.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9paXF3eGhrb2Z1dHd2b3lwcXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0OTE4NDYsImV4cCI6MjA3NzA2Nzg0Nn0.MT7uSSIFKRUJp4lpRlJ_JZGazpjSQPIIFsKoVjCGCbc';
-
 // Configuración de Firebase
 const firebaseConfig = {
     apiKey: "AIzaSyD_jPhRhjQBnozVPlJmPxQlzFvuVkzn66k",
