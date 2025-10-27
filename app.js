@@ -1,4 +1,4 @@
-// app.js - FIREBASE AUTH + FIREBASE STORAGE
+// app.js - FIREBASE AUTH + GOOGLE DRIVE STORAGE
 const SUPABASE_URL = 'https://oiiqwxhkofutwvoypqwz.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9paXF3eGhrb2Z1dHd2b3lwcXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0OTE4NDYsImV4cCI6MjA3NzA2Nzg0Nn0.MT7uSSIFKRUJp4lpRlJ_JZGazpjSQPIIFsKoVjCGCbc';
 
@@ -12,16 +12,12 @@ const firebaseConfig = {
     appId: "1:287662125263:web:80500af19c46b495d607ba",
 };
 
+// Configuración de Google Drive
+const DRIVE_CLIENT_ID = '246398007101-dfe87if1n3hslp5ffo2ks6bkjflghgtl.apps.googleusercontent.com';
+
 // Inicializar Firebase
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
-
-// Verificar que Firebase Storage esté disponible
-if (typeof firebase.storage === 'undefined') {
-    console.error('❌ Firebase Storage no está disponible. Verifica que incluiste firebase-storage-compat.js');
-} else {
-    console.log('✅ Firebase Storage disponible');
-}
 
 // Inicializar Supabase (solo para referencia)
 const { createClient } = supabase;
@@ -35,9 +31,15 @@ let isPlaying = false;
 let isLoading = false;
 let currentUser = null;
 
-// Inicializar la aplicación
+// Variables Google Drive
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
+
+// ========== INICIALIZACIÓN ==========
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🎵 Iniciando MusicStream (Firebase Auth + Firebase Storage)...');
+    console.log('🎵 Iniciando MusicStream (Firebase Auth + Google Drive)...');
+    initializeGoogleDrive();
     initApp();
 });
 
@@ -47,7 +49,36 @@ async function initApp() {
     loadSongsFromLocalStorage();
 }
 
-// ========== AUTENTICACIÓN CON FIREBASE ==========
+// ========== GOOGLE DRIVE INIT ==========
+function initializeGoogleDrive() {
+    console.log('🚀 Inicializando Google Drive API...');
+    
+    // Configurar Token Client
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: DRIVE_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: '',
+    });
+    
+    gisInited = true;
+    
+    // Inicializar Google API Client
+    gapi.load('client', initializeGapiClient);
+}
+
+async function initializeGapiClient() {
+    try {
+        await gapi.client.init({
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+        });
+        gapiInited = true;
+        console.log('✅ Google Drive API inicializada');
+    } catch (error) {
+        console.error('❌ Error inicializando Google Drive:', error);
+    }
+}
+
+// ========== FIREBASE AUTH ==========
 async function checkFirebaseAuthState() {
     auth.onAuthStateChanged((user) => {
         if (user) {
@@ -125,21 +156,31 @@ function updateUserProfile() {
 function setupEventListeners() {
     console.log('🔧 Configurando event listeners...');
     
+    // Auth
     document.getElementById('google-login').addEventListener('click', signInWithGoogle);
     document.getElementById('login-btn').addEventListener('click', showLoginSection);
     document.getElementById('logout-btn').addEventListener('click', signOut);
+    
+    // Navegación
     document.getElementById('home-link').addEventListener('click', showHomeSection);
     document.getElementById('upload-link').addEventListener('click', showUploadSection);
     document.getElementById('stats-link').addEventListener('click', showStats);
+    
+    // Búsqueda y filtros
     document.getElementById('search-btn').addEventListener('click', performSearch);
     document.getElementById('search-input').addEventListener('input', performSearch);
     document.getElementById('genre-filter').addEventListener('change', performSearch);
+    
+    // Upload
     document.getElementById('upload-form').addEventListener('submit', handleUpload);
+    
+    // Reproductor
     document.getElementById('play-btn').addEventListener('click', togglePlay);
     document.getElementById('prev-btn').addEventListener('click', playPrevious);
     document.getElementById('next-btn').addEventListener('click', playNext);
     document.getElementById('volume-slider').addEventListener('input', setVolume);
     
+    // Eventos de audio
     audioPlayer.addEventListener('loadedmetadata', updateDuration);
     audioPlayer.addEventListener('timeupdate', updateProgress);
     audioPlayer.addEventListener('ended', playNext);
@@ -149,23 +190,251 @@ function setupEventListeners() {
     console.log('✅ Event listeners configurados');
 }
 
-// ========== ALMACENAMIENTO LOCAL TEMPORAL ==========
+// ========== GOOGLE DRIVE UPLOAD ==========
+async function authenticateDrive() {
+    return new Promise((resolve, reject) => {
+        tokenClient.callback = async (resp) => {
+            if (resp.error !== undefined) {
+                reject(resp);
+                return;
+            }
+            console.log('✅ Autenticado con Google Drive');
+            resolve(gapi.client.getToken());
+        };
+
+        if (gapi.client.getToken() === null) {
+            tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+            tokenClient.requestAccessToken({prompt: ''});
+        }
+    });
+}
+
+async function handleUpload(e) {
+    e.preventDefault();
+    
+    if (!currentUser) {
+        showNotification('❌ Debes iniciar sesión para subir canciones', 'error');
+        showLoginSection();
+        return;
+    }
+
+    const fileInput = document.getElementById('song-file');
+    const coverInput = document.getElementById('song-cover');
+    const songName = document.getElementById('song-name').value.trim();
+    const artistName = document.getElementById('artist-name').value.trim();
+    const songGenre = document.getElementById('song-genre').value;
+    
+    const audioFile = fileInput.files[0];
+
+    if (!audioFile || !songName || !artistName || !songGenre) {
+        showNotification('❌ Completa todos los campos requeridos', 'error');
+        return;
+    }
+
+    try {
+        showLoading(true, '📤 Preparando subida...');
+        const submitBtn = document.querySelector('.btn-upload');
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ Conectando...';
+        submitBtn.style.opacity = '0.7';
+
+        // Intentar con Google Drive primero
+        if (gapiInited && gisInited) {
+            await handleDriveUpload(audioFile, coverInput.files[0], songName, artistName, songGenre);
+        } else {
+            throw new Error('Google Drive no disponible');
+        }
+
+    } catch (error) {
+        console.error('❌ Error con Google Drive:', error);
+        
+        // Fallback a localStorage
+        showNotification('⚠️ Usando almacenamiento local', 'warning');
+        await handleLocalUpload(audioFile, coverInput.files[0], songName, artistName, songGenre);
+    } finally {
+        showLoading(false);
+        const submitBtn = document.querySelector('.btn-upload');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '🚀 Subir Canción';
+            submitBtn.style.opacity = '1';
+        }
+    }
+}
+
+async function handleDriveUpload(audioFile, coverFile, songName, artistName, songGenre) {
+    showLoading(true, '🔐 Autenticando con Google Drive...');
+    await authenticateDrive();
+
+    showLoading(true, '📤 Subiendo canción a Google Drive...');
+    
+    // Subir archivo de audio
+    const audioMetadata = {
+        name: `${songName} - ${artistName}.mp3`,
+        mimeType: audioFile.type,
+    };
+
+    const audioForm = new FormData();
+    audioForm.append('metadata', new Blob([JSON.stringify(audioMetadata)], {type: 'application/json'}));
+    audioForm.append('file', audioFile);
+
+    const audioResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + gapi.client.getToken().access_token
+        },
+        body: audioForm
+    });
+
+    if (!audioResponse.ok) {
+        throw new Error(`Error HTTP: ${audioResponse.status}`);
+    }
+
+    const audioData = await audioResponse.json();
+    console.log('✅ Audio subido a Drive:', audioData);
+
+    // Crear URL de descarga directa
+    const downloadUrl = `https://drive.google.com/uc?id=${audioData.id}&export=download`;
+
+    // Subir portada si existe
+    let coverUrl = getDefaultCover(songGenre);
+    if (coverFile) {
+        const coverMetadata = {
+            name: `Cover - ${songName}.jpg`,
+            mimeType: coverFile.type,
+        };
+
+        const coverForm = new FormData();
+        coverForm.append('metadata', new Blob([JSON.stringify(coverMetadata)], {type: 'application/json'}));
+        coverForm.append('file', coverFile);
+
+        const coverResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + gapi.client.getToken().access_token
+            },
+            body: coverForm
+        });
+
+        if (coverResponse.ok) {
+            const coverData = await coverResponse.json();
+            coverUrl = `https://drive.google.com/uc?id=${coverData.id}&export=download`;
+            console.log('✅ Portada subida a Drive:', coverData);
+        }
+    }
+
+    // Guardar metadata de la canción
+    await saveSongToLibrary(downloadUrl, coverUrl, songName, artistName, songGenre, audioFile, audioData.id);
+    showNotification('🎉 ¡Canción subida exitosamente a Google Drive!', 'success');
+}
+
+async function handleLocalUpload(audioFile, coverFile, songName, artistName, songGenre) {
+    const duration = await getAudioDuration(audioFile);
+    
+    // Convertir archivos a Base64 para persistencia
+    const audioUrl = URL.createObjectURL(audioFile);
+    const audioBase64 = await fileToBase64(audioFile);
+    
+    let coverUrl = getDefaultCover(songGenre);
+    let coverBase64 = null;
+    
+    if (coverFile) {
+        coverUrl = URL.createObjectURL(coverFile);
+        coverBase64 = await fileToBase64(coverFile);
+    }
+
+    const newSong = {
+        id: Date.now().toString(),
+        name: songName,
+        artist: artistName,
+        genre: songGenre,
+        fileUrl: audioUrl,
+        imageUrl: coverUrl,
+        file_size: audioFile.size,
+        duration: duration,
+        uploader: currentUser.uid,
+        uploader_name: currentUser.displayName || currentUser.email,
+        created_at: new Date().toISOString(),
+        formattedDuration: formatDuration(duration),
+        formattedSize: formatFileSize(audioFile.size),
+        audioData: audioBase64,
+        coverData: coverBase64,
+        storage: 'local'
+    };
+
+    // Guardar en localStorage
+    const currentSongs = [...songs, newSong];
+    window.songs = currentSongs;
+    saveSongsToLocalStorage(currentSongs);
+    
+    showNotification('🎉 ¡Canción subida exitosamente! (Almacenamiento local)', 'success');
+    document.getElementById('upload-form').reset();
+    displaySongs(currentSongs);
+    updateStats(currentSongs);
+    showHomeSection();
+}
+
+async function saveSongToLibrary(audioUrl, coverUrl, songName, artistName, songGenre, audioFile, driveId) {
+    const duration = await getAudioDuration(audioFile);
+    
+    const newSong = {
+        id: Date.now().toString(),
+        name: songName,
+        artist: artistName,
+        genre: songGenre,
+        fileUrl: audioUrl,
+        imageUrl: coverUrl,
+        file_size: audioFile.size,
+        duration: duration,
+        uploader: currentUser.uid,
+        uploader_name: currentUser.displayName || currentUser.email,
+        created_at: new Date().toISOString(),
+        formattedDuration: formatDuration(duration),
+        formattedSize: formatFileSize(audioFile.size),
+        driveId: driveId,
+        storage: 'google_drive'
+    };
+
+    // Guardar en localStorage
+    const currentSongs = [...songs, newSong];
+    window.songs = currentSongs;
+    saveSongsToLocalStorage(currentSongs);
+    
+    document.getElementById('upload-form').reset();
+    displaySongs(currentSongs);
+    updateStats(currentSongs);
+    showHomeSection();
+}
+
+// ========== ALMACENAMIENTO LOCAL ==========
 function loadSongsFromLocalStorage() {
     try {
         showLoading(true, '🎵 Cargando biblioteca...');
         
-        // Intentar cargar desde localStorage primero
         const savedSongs = localStorage.getItem('musicStreamSongs');
         if (savedSongs) {
             const songsData = JSON.parse(savedSongs);
+            
+            // Para canciones locales, reconstruir desde base64
+            songsData.forEach(song => {
+                if (song.storage === 'local' && song.audioData) {
+                    song.fileUrl = song.audioData;
+                }
+                if (song.storage === 'local' && song.coverData) {
+                    song.imageUrl = song.coverData;
+                } else if (!song.imageUrl) {
+                    song.imageUrl = getDefaultCover(song.genre);
+                }
+            });
+            
             window.songs = songsData;
             displaySongs(songsData);
             updateStats(songsData);
-            showNotification(`🎵 ${songsData.length} canciones cargadas (local)`, 'success');
+            showNotification(`🎵 ${songsData.length} canciones cargadas`, 'success');
             return;
         }
         
-        // Si no hay canciones en localStorage, mostrar mensaje
         showNoSongsMessage();
         
     } catch (error) {
@@ -185,155 +454,7 @@ function saveSongsToLocalStorage(songs) {
     }
 }
 
-// ========== FUNCIÓN handleUpload CON FIREBASE STORAGE ==========
-async function handleUpload(e) {
-    e.preventDefault();
-    
-    if (!currentUser) {
-        showNotification('❌ Debes iniciar sesión para subir canciones', 'error');
-        showLoginSection();
-        return;
-    }
-    
-    // Verificar que Firebase Storage esté disponible
-    if (typeof firebase.storage === 'undefined') {
-        showNotification('❌ Error: Firebase Storage no está disponible. Recarga la página.', 'error');
-        return;
-    }
-    
-    const fileInput = document.getElementById('song-file');
-    const coverInput = document.getElementById('song-cover');
-    const songName = document.getElementById('song-name').value.trim();
-    const artistName = document.getElementById('artist-name').value.trim();
-    const songGenre = document.getElementById('song-genre').value;
-    
-    const audioFile = fileInput.files[0];
-
-    if (!audioFile || !songName || !artistName || !songGenre) {
-        showNotification('❌ Completa todos los campos requeridos', 'error');
-        return;
-    }
-
-    try {
-        showLoading(true, '📤 Subiendo canción...');
-        const submitBtn = document.querySelector('.btn-upload');
-        submitBtn.disabled = true;
-        submitBtn.textContent = '⏳ Subiendo...';
-        submitBtn.style.opacity = '0.7';
-        
-        console.log('⬆️ Usando Firebase Storage...');
-
-        // 1. Subir archivo de audio a Firebase Storage
-        const storage = firebase.storage();
-        const storageRef = storage.ref();
-        
-        const audioFileName = `songs/audio_${Date.now()}_${audioFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-        const audioRef = storageRef.child(audioFileName);
-        
-        console.log('📁 Subiendo audio a Firebase...');
-        const audioSnapshot = await audioRef.put(audioFile);
-        const audioUrl = await audioSnapshot.ref.getDownloadURL();
-        console.log('✅ Audio subido:', audioUrl);
-
-        // 2. Subir portada si existe
-        let coverUrl = getDefaultCover(songGenre);
-        const coverFile = coverInput.files[0];
-        if (coverFile) {
-            const coverFileName = `covers/cover_${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-            const coverRef = storageRef.child(coverFileName);
-            
-            console.log('🖼️ Subiendo portada a Firebase...');
-            const coverSnapshot = await coverRef.put(coverFile);
-            coverUrl = await coverSnapshot.ref.getDownloadURL();
-            console.log('✅ Portada subida:', coverUrl);
-        }
-
-        // 3. Calcular duración
-        const duration = await getAudioDuration(audioFile);
-        console.log('⏱️ Duración:', duration);
-
-        // 4. Crear objeto de canción
-        const newSong = {
-            id: Date.now().toString(),
-            name: songName,
-            artist: artistName,
-            genre: songGenre,
-            fileUrl: audioUrl,
-            imageUrl: coverUrl,
-            file_size: audioFile.size,
-            duration: duration,
-            uploader: currentUser.uid,
-            uploader_name: currentUser.displayName || currentUser.email,
-            created_at: new Date().toISOString(),
-            formattedDuration: formatDuration(duration),
-            formattedSize: formatFileSize(audioFile.size)
-        };
-
-        console.log('✅ Nueva canción creada:', newSong);
-
-        // 5. Guardar en localStorage
-        const currentSongs = [...songs, newSong];
-        window.songs = currentSongs;
-        saveSongsToLocalStorage(currentSongs);
-        
-        console.log('✅ Canción guardada exitosamente');
-        showNotification('🎉 ¡Canción subida exitosamente!', 'success');
-        
-        document.getElementById('upload-form').reset();
-        displaySongs(currentSongs);
-        updateStats(currentSongs);
-        showHomeSection();
-
-    } catch (error) {
-        console.error('❌ Error en subida:', error);
-        showNotification('❌ Error: ' + error.message, 'error');
-    } finally {
-        showLoading(false);
-        const submitBtn = document.querySelector('.btn-upload');
-        if (submitBtn) {
-            submitBtn.disabled = false;
-            submitBtn.textContent = '🚀 Subir Canción';
-            submitBtn.style.opacity = '1';
-        }
-    }
-}
-
-async function performSearch() {
-    const searchTerm = document.getElementById('search-input').value.toLowerCase();
-    const genreFilter = document.getElementById('genre-filter').value;
-
-    let filteredSongs = songs;
-
-    if (searchTerm) {
-        filteredSongs = filteredSongs.filter(song => 
-            song.name.toLowerCase().includes(searchTerm) || 
-            song.artist.toLowerCase().includes(searchTerm)
-        );
-    }
-
-    if (genreFilter) {
-        filteredSongs = filteredSongs.filter(song => song.genre === genreFilter);
-    }
-
-    displaySongs(filteredSongs);
-    
-    if (filteredSongs.length === 0) {
-        showNotification('🔍 No se encontraron canciones con esos criterios', 'info');
-    }
-}
-
-function showNoSongsMessage() {
-    document.getElementById('songs-container').innerHTML = `
-        <div class="no-songs">
-            <h3>¡Bienvenido a MusicStream!</h3>
-            <p>Sube tu primera canción para comenzar</p>
-            <button onclick="showUploadSection()" class="btn-upload-first">🎵 Subir Primera Canción</button>
-        </div>
-    `;
-    updateStats([]);
-}
-
-// ========== INTERFAZ ==========
+// ========== INTERFAZ DE CANCIONES ==========
 function displaySongs(songsToDisplay) {
     const container = document.getElementById('songs-container');
     
@@ -359,6 +480,7 @@ function displaySongs(songsToDisplay) {
                     <span class="song-genre">${capitalizeFirst(song.genre)}</span>
                     <span class="song-size">${song.formattedSize}</span>
                     ${song.uploader_name ? `<span class="uploader">Subido por: ${song.uploader_name}</span>` : ''}
+                    <span class="storage-badge">${song.storage === 'google_drive' ? '☁️ Drive' : '💾 Local'}</span>
                 </div>
             </div>
             <div class="song-actions">
@@ -389,11 +511,23 @@ function displaySongs(songsToDisplay) {
     });
 }
 
+function showNoSongsMessage() {
+    document.getElementById('songs-container').innerHTML = `
+        <div class="no-songs">
+            <h3>¡Bienvenido a MusicStream!</h3>
+            <p>Sube tu primera canción para comenzar</p>
+            <button onclick="showUploadSection()" class="btn-upload-first">🎵 Subir Primera Canción</button>
+        </div>
+    `;
+    updateStats([]);
+}
+
 function updateStats(songs) {
     const totalSize = songs.reduce((sum, song) => sum + (song.file_size || 0), 0);
     const genres = new Set(songs.map(song => song.genre));
+    const driveSongs = songs.filter(song => song.storage === 'google_drive').length;
     
-    document.getElementById('total-songs').innerHTML = `<strong>${songs.length}</strong> canciones`;
+    document.getElementById('total-songs').innerHTML = `<strong>${songs.length}</strong> canciones (${driveSongs} en Drive)`;
     document.getElementById('total-genres').innerHTML = `<strong>${genres.size}</strong> géneros`;
     document.getElementById('total-size').innerHTML = `<strong>${formatFileSize(totalSize)}</strong> total`;
 }
@@ -515,6 +649,63 @@ function downloadSong(songId) {
     }
 }
 
+// ========== NAVEGACIÓN ==========
+function showHomeSection(e) {
+    if (e) e.preventDefault();
+    document.getElementById('upload-section').classList.add('hidden');
+    document.querySelector('.songs-section').classList.remove('hidden');
+    document.querySelector('.search-section').classList.remove('hidden');
+    document.querySelector('.player-section').classList.remove('hidden');
+}
+
+function showUploadSection(e) {
+    if (e) e.preventDefault();
+    if (!currentUser) {
+        showNotification('❌ Debes iniciar sesión para subir música', 'error');
+        showLoginSection();
+        return;
+    }
+    document.getElementById('upload-section').classList.remove('hidden');
+    document.querySelector('.songs-section').classList.add('hidden');
+    document.querySelector('.search-section').classList.add('hidden');
+    document.querySelector('.player-section').classList.add('hidden');
+}
+
+function showStats() {
+    if (songs.length === 0) {
+        showNotification('📊 La biblioteca está vacía', 'info');
+        return;
+    }
+    const totalSize = songs.reduce((sum, song) => sum + (song.file_size || 0), 0);
+    const genres = new Set(songs.map(song => song.genre));
+    const driveSongs = songs.filter(song => song.storage === 'google_drive').length;
+    showNotification(`📊 Estadísticas: ${songs.length} canciones (${driveSongs} en Drive) | ${genres.size} géneros | ${formatFileSize(totalSize)} total`, 'info');
+}
+
+function performSearch() {
+    const searchTerm = document.getElementById('search-input').value.toLowerCase();
+    const genreFilter = document.getElementById('genre-filter').value;
+
+    let filteredSongs = songs;
+
+    if (searchTerm) {
+        filteredSongs = filteredSongs.filter(song => 
+            song.name.toLowerCase().includes(searchTerm) || 
+            song.artist.toLowerCase().includes(searchTerm)
+        );
+    }
+
+    if (genreFilter) {
+        filteredSongs = filteredSongs.filter(song => song.genre === genreFilter);
+    }
+
+    displaySongs(filteredSongs);
+    
+    if (filteredSongs.length === 0) {
+        showNotification('🔍 No se encontraron canciones con esos criterios', 'info');
+    }
+}
+
 // ========== UTILIDADES ==========
 function getDefaultCover(genre) {
     const colors = {
@@ -543,6 +734,15 @@ function getAudioDuration(file) {
             URL.revokeObjectURL(audio.src);
         });
         audio.addEventListener('error', () => resolve(0));
+    });
+}
+
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
     });
 }
 
@@ -579,37 +779,7 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-function showHomeSection(e) {
-    if (e) e.preventDefault();
-    document.getElementById('upload-section').classList.add('hidden');
-    document.querySelector('.songs-section').classList.remove('hidden');
-    document.querySelector('.search-section').classList.remove('hidden');
-    document.querySelector('.player-section').classList.remove('hidden');
-}
-
-function showUploadSection(e) {
-    if (e) e.preventDefault();
-    if (!currentUser) {
-        showNotification('❌ Debes iniciar sesión para subir música', 'error');
-        showLoginSection();
-        return;
-    }
-    document.getElementById('upload-section').classList.remove('hidden');
-    document.querySelector('.songs-section').classList.add('hidden');
-    document.querySelector('.search-section').classList.add('hidden');
-    document.querySelector('.player-section').classList.add('hidden');
-}
-
-function showStats() {
-    if (songs.length === 0) {
-        showNotification('📊 La biblioteca está vacía', 'info');
-        return;
-    }
-    const totalSize = songs.reduce((sum, song) => sum + (song.file_size || 0), 0);
-    const genres = new Set(songs.map(song => song.genre));
-    showNotification(`📊 Estadísticas: ${songs.length} canciones | ${genres.size} géneros | ${formatFileSize(totalSize)} total`, 'info');
-}
-
+// ========== LOADING & NOTIFICATIONS ==========
 function showLoading(show, message = '') {
     isLoading = show;
     if (show) {
@@ -674,4 +844,4 @@ window.downloadSong = downloadSong;
 window.showUploadSection = showUploadSection;
 window.loadSongs = loadSongsFromLocalStorage;
 
-console.log('🎵 MusicStream (Firebase Auth + Firebase Storage) cargado correctamente');
+console.log('🎵 MusicStream (Firebase Auth + Google Drive) cargado correctamente');
