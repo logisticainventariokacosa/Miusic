@@ -1,4 +1,4 @@
-// app.js - FIREBASE AUTH + GOOGLE DRIVE STORAGE (VERSIÓN LIMPIA)
+// app.js - VERSIÓN CORREGIDA CON GOOGLE DRIVE
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -29,47 +29,64 @@ let currentUser = null;
 let tokenClient;
 let gapiInited = false;
 let gisInited = false;
+let driveReady = false;
 
 // ========== INICIALIZACIÓN ==========
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🎵 Iniciando MusicStream (Firebase Auth + Google Drive)...');
-    initializeGoogleDrive();
     initApp();
 });
 
 async function initApp() {
+    await initializeGoogleDrive();
     await checkFirebaseAuthState();
     setupEventListeners();
     loadSongsFromLocalStorage();
 }
 
-// ========== GOOGLE DRIVE INIT ==========
-function initializeGoogleDrive() {
-    console.log('🚀 Inicializando Google Drive API...');
-    
-    // Configurar Token Client
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: DRIVE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.file',
-        callback: '',
-    });
-    
-    gisInited = true;
-    
-    // Inicializar Google API Client
-    gapi.load('client', initializeGapiClient);
-}
+// ========== GOOGLE DRIVE INIT CORREGIDO ==========
+async function initializeGoogleDrive() {
+    return new Promise((resolve) => {
+        console.log('🚀 Inicializando Google Drive API...');
+        
+        // Verificar si las APIs de Google están disponibles
+        if (typeof google === 'undefined' || typeof gapi === 'undefined') {
+            console.warn('⚠️ Google APIs no disponibles');
+            resolve(false);
+            return;
+        }
 
-async function initializeGapiClient() {
-    try {
-        await gapi.client.init({
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+        // Configurar Token Client
+        try {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: DRIVE_CLIENT_ID,
+                scope: 'https://www.googleapis.com/auth/drive.file',
+                callback: '',
+            });
+            gisInited = true;
+            console.log('✅ Google Identity Services inicializado');
+        } catch (error) {
+            console.error('❌ Error inicializando Google Identity:', error);
+            resolve(false);
+            return;
+        }
+
+        // Inicializar Google API Client
+        gapi.load('client', async () => {
+            try {
+                await gapi.client.init({
+                    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+                });
+                gapiInited = true;
+                driveReady = true;
+                console.log('✅ Google Drive API inicializada correctamente');
+                resolve(true);
+            } catch (error) {
+                console.error('❌ Error inicializando Google Drive API:', error);
+                resolve(false);
+            }
         });
-        gapiInited = true;
-        console.log('✅ Google Drive API inicializada');
-    } catch (error) {
-        console.error('❌ Error inicializando Google Drive:', error);
-    }
+    });
 }
 
 // ========== FIREBASE AUTH ==========
@@ -184,9 +201,14 @@ function setupEventListeners() {
     console.log('✅ Event listeners configurados');
 }
 
-// ========== GOOGLE DRIVE UPLOAD ==========
+// ========== GOOGLE DRIVE UPLOAD CORREGIDO ==========
 async function authenticateDrive() {
     return new Promise((resolve, reject) => {
+        if (!tokenClient) {
+            reject(new Error('Google Drive no está disponible'));
+            return;
+        }
+
         tokenClient.callback = async (resp) => {
             if (resp.error !== undefined) {
                 reject(resp);
@@ -233,10 +255,12 @@ async function handleUpload(e) {
         submitBtn.textContent = '⏳ Conectando...';
         submitBtn.style.opacity = '0.7';
 
-        // Intentar con Google Drive primero
-        if (gapiInited && gisInited) {
+        // Verificar si Google Drive está disponible
+        if (driveReady && gapiInited && gisInited) {
+            console.log('🔄 Intentando subir con Google Drive...');
             await handleDriveUpload(audioFile, coverInput.files[0], songName, artistName, songGenre);
         } else {
+            console.log('🔄 Google Drive no disponible, usando localStorage');
             throw new Error('Google Drive no disponible');
         }
 
@@ -263,65 +287,74 @@ async function handleDriveUpload(audioFile, coverFile, songName, artistName, son
 
     showLoading(true, '📤 Subiendo canción a Google Drive...');
     
-    // Subir archivo de audio
-    const audioMetadata = {
-        name: `${songName} - ${artistName}.mp3`,
-        mimeType: audioFile.type,
-    };
-
-    const audioForm = new FormData();
-    audioForm.append('metadata', new Blob([JSON.stringify(audioMetadata)], {type: 'application/json'}));
-    audioForm.append('file', audioFile);
-
-    const audioResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
-        method: 'POST',
-        headers: {
-            'Authorization': 'Bearer ' + gapi.client.getToken().access_token
-        },
-        body: audioForm
-    });
-
-    if (!audioResponse.ok) {
-        throw new Error(`Error HTTP: ${audioResponse.status}`);
-    }
-
-    const audioData = await audioResponse.json();
-    console.log('✅ Audio subido a Drive:', audioData);
-
-    // Crear URL de descarga directa
-    const downloadUrl = `https://drive.google.com/uc?id=${audioData.id}&export=download`;
-
-    // Subir portada si existe
-    let coverUrl = getDefaultCover(songGenre);
-    if (coverFile) {
-        const coverMetadata = {
-            name: `Cover - ${songName}.jpg`,
-            mimeType: coverFile.type,
+    try {
+        // Subir archivo de audio
+        const audioMetadata = {
+            name: `${songName} - ${artistName}.mp3`,
+            mimeType: audioFile.type,
         };
 
-        const coverForm = new FormData();
-        coverForm.append('metadata', new Blob([JSON.stringify(coverMetadata)], {type: 'application/json'}));
-        coverForm.append('file', coverFile);
+        const audioForm = new FormData();
+        audioForm.append('metadata', new Blob([JSON.stringify(audioMetadata)], {type: 'application/json'}));
+        audioForm.append('file', audioFile);
 
-        const coverResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        const audioResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
             method: 'POST',
             headers: {
                 'Authorization': 'Bearer ' + gapi.client.getToken().access_token
             },
-            body: coverForm
+            body: audioForm
         });
 
-        if (coverResponse.ok) {
-            const coverData = await coverResponse.json();
-            coverUrl = `https://drive.google.com/uc?id=${coverData.id}&export=download`;
-            console.log('✅ Portada subida a Drive:', coverData);
+        if (!audioResponse.ok) {
+            const errorText = await audioResponse.text();
+            throw new Error(`Error HTTP ${audioResponse.status}: ${errorText}`);
         }
-    }
 
-    // Guardar metadata de la canción
-    await saveSongToLibrary(downloadUrl, coverUrl, songName, artistName, songGenre, audioFile, audioData.id);
-    showNotification('🎉 ¡Canción subida exitosamente a Google Drive!', 'success');
+        const audioData = await audioResponse.json();
+        console.log('✅ Audio subido a Drive:', audioData);
+
+        // Crear URL de descarga directa
+        const downloadUrl = `https://drive.google.com/uc?id=${audioData.id}&export=download`;
+
+        // Subir portada si existe
+        let coverUrl = getDefaultCover(songGenre);
+        if (coverFile) {
+            const coverMetadata = {
+                name: `Cover - ${songName}.jpg`,
+                mimeType: coverFile.type,
+            };
+
+            const coverForm = new FormData();
+            coverForm.append('metadata', new Blob([JSON.stringify(coverMetadata)], {type: 'application/json'}));
+            coverForm.append('file', coverFile);
+
+            const coverResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + gapi.client.getToken().access_token
+                },
+                body: coverForm
+            });
+
+            if (coverResponse.ok) {
+                const coverData = await coverResponse.json();
+                coverUrl = `https://drive.google.com/uc?id=${coverData.id}&export=download`;
+                console.log('✅ Portada subida a Drive:', coverData);
+            }
+        }
+
+        // Guardar metadata de la canción
+        await saveSongToLibrary(downloadUrl, coverUrl, songName, artistName, songGenre, audioFile, audioData.id);
+        showNotification('🎉 ¡Canción subida exitosamente a Google Drive!', 'success');
+        
+    } catch (error) {
+        console.error('❌ Error en subida a Drive:', error);
+        throw error; // Re-lanzar el error para manejarlo en handleUpload
+    }
 }
+
+// ... (el resto del código se mantiene igual desde handleLocalUpload hasta el final)
 
 async function handleLocalUpload(audioFile, coverFile, songName, artistName, songGenre) {
     const duration = await getAudioDuration(audioFile);
