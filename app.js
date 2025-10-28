@@ -11,7 +11,7 @@ const firebaseConfig = {
 };
 
 // 🎯 Tu URL de la aplicación web de Google Apps Script
-const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxSxe5whVpKb6rLNEUmcsPPC_DyO1mz3PeDQx4d6azob9owckLvJ_Zdxv_JiGjAnTr-/exec';
+const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxeyAjnPcofggJB8iixV9QjMo3Qtwels-a9QC1tGgRHUtoWO9S8pFHCEZrlQ__8Ay-t/exec';
 
 // Inicializar Firebase
 const app = firebase.initializeApp(firebaseConfig);
