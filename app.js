@@ -1,4 +1,4 @@
-// app.js - VERSIÓN CORREGIDA CON GOOGLE DRIVE
+// app.js - VERSIÓN FINAL CON GOOGLE APPS SCRIPT
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -10,8 +10,8 @@ const firebaseConfig = {
     appId: "1:287662125263:web:80500af19c46b495d607ba",
 };
 
-// Configuración de Google Drive
-const DRIVE_CLIENT_ID = '246398007101-dfe87if1n3hslp5ffo2ks6bkjflghgtl.apps.googleusercontent.com';
+// 🎯 Tu URL de la aplicación web de Google Apps Script (Web App URL)
+const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxSxe5whVpKb6rLNEUmcsPPC_DyO1mz3PeDQx4d6azob9owckLvJ_Zdxv_JiGjAnTr-/exec';
 
 // Inicializar Firebase
 firebase.initializeApp(firebaseConfig);
@@ -25,71 +25,20 @@ let isPlaying = false;
 let isLoading = false;
 let currentUser = null;
 
-// Variables Google Drive
-let tokenClient;
-let gapiInited = false;
-let gisInited = false;
-let driveReady = false;
-
 // ========== INICIALIZACIÓN ==========
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🎵 Iniciando MusicStream (Firebase Auth + Google Drive)...');
+    console.log('🎵 Iniciando MusicStream (Firebase Auth + Google Apps Script)...');
     initApp();
 });
 
 async function initApp() {
-    await initializeGoogleDrive();
+    // Ya no se necesita initializeGoogleDrive
     await checkFirebaseAuthState();
     setupEventListeners();
     loadSongsFromLocalStorage();
 }
 
-// ========== GOOGLE DRIVE INIT CORREGIDO ==========
-async function initializeGoogleDrive() {
-    return new Promise((resolve) => {
-        console.log('🚀 Inicializando Google Drive API...');
-        
-        // Verificar si las APIs de Google están disponibles
-        if (typeof google === 'undefined' || typeof gapi === 'undefined') {
-            console.warn('⚠️ Google APIs no disponibles');
-            resolve(false);
-            return;
-        }
-
-        // Configurar Token Client
-        try {
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: DRIVE_CLIENT_ID,
-                scope: 'https://www.googleapis.com/auth/drive.file',
-                callback: '',
-            });
-            gisInited = true;
-            console.log('✅ Google Identity Services inicializado');
-        } catch (error) {
-            console.error('❌ Error inicializando Google Identity:', error);
-            resolve(false);
-            return;
-        }
-
-        // Inicializar Google API Client
-        gapi.load('client', async () => {
-            try {
-                await gapi.client.init({
-                    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-                });
-                gapiInited = true;
-                driveReady = true;
-                console.log('✅ Google Drive API inicializada correctamente');
-                resolve(true);
-            } catch (error) {
-                console.error('❌ Error inicializando Google Drive API:', error);
-                resolve(false);
-            }
-        });
-    });
-}
-
-// ========== FIREBASE AUTH ==========
+// ========== FIREBASE AUTH (Sin cambios) ==========
 async function checkFirebaseAuthState() {
     auth.onAuthStateChanged((user) => {
         if (user) {
@@ -136,7 +85,7 @@ async function signOut() {
     }
 }
 
-// ========== INTERFAZ DE USUARIO ==========
+// ========== INTERFAZ DE USUARIO (Sin cambios) ==========
 function showLoginSection() {
     document.getElementById('login-section').classList.remove('hidden');
     document.getElementById('main-content').classList.add('hidden');
@@ -167,25 +116,25 @@ function updateUserProfile() {
 function setupEventListeners() {
     console.log('🔧 Configurando event listeners...');
     
-    // Auth
+    // Auth (Usa los IDs de tu HTML)
     document.getElementById('google-login').addEventListener('click', signInWithGoogle);
     document.getElementById('login-btn').addEventListener('click', showLoginSection);
     document.getElementById('logout-btn').addEventListener('click', signOut);
     
-    // Navegación
+    // Navegación (Usa los IDs de tu HTML)
     document.getElementById('home-link').addEventListener('click', showHomeSection);
     document.getElementById('upload-link').addEventListener('click', showUploadSection);
     document.getElementById('stats-link').addEventListener('click', showStats);
     
-    // Búsqueda y filtros
+    // Búsqueda y filtros (Usa los IDs de tu HTML)
     document.getElementById('search-btn').addEventListener('click', performSearch);
     document.getElementById('search-input').addEventListener('input', performSearch);
     document.getElementById('genre-filter').addEventListener('change', performSearch);
     
-    // Upload
+    // Upload (Usa el ID de tu HTML)
     document.getElementById('upload-form').addEventListener('submit', handleUpload);
     
-    // Reproductor
+    // Reproductor (Usa los IDs de tu HTML)
     document.getElementById('play-btn').addEventListener('click', togglePlay);
     document.getElementById('prev-btn').addEventListener('click', playPrevious);
     document.getElementById('next-btn').addEventListener('click', playNext);
@@ -201,30 +150,7 @@ function setupEventListeners() {
     console.log('✅ Event listeners configurados');
 }
 
-// ========== GOOGLE DRIVE UPLOAD CORREGIDO ==========
-async function authenticateDrive() {
-    return new Promise((resolve, reject) => {
-        if (!tokenClient) {
-            reject(new Error('Google Drive no está disponible'));
-            return;
-        }
-
-        tokenClient.callback = async (resp) => {
-            if (resp.error !== undefined) {
-                reject(resp);
-                return;
-            }
-            console.log('✅ Autenticado con Google Drive');
-            resolve(gapi.client.getToken());
-        };
-
-        if (gapi.client.getToken() === null) {
-            tokenClient.requestAccessToken({prompt: 'consent'});
-        } else {
-            tokenClient.requestAccessToken({prompt: ''});
-        }
-    });
-}
+// ========== GOOGLE APPS SCRIPT UPLOAD (Lógica central) ==========
 
 async function handleUpload(e) {
     e.preventDefault();
@@ -249,26 +175,32 @@ async function handleUpload(e) {
     }
 
     try {
-        showLoading(true, '📤 Preparando subida...');
+        showLoading(true, '📤 Subiendo canción a Google Drive...');
         const submitBtn = document.querySelector('.btn-upload');
         submitBtn.disabled = true;
-        submitBtn.textContent = '⏳ Conectando...';
+        submitBtn.textContent = '⏳ Subiendo...';
         submitBtn.style.opacity = '0.7';
 
-        // Verificar si Google Drive está disponible
-        if (driveReady && gapiInited && gisInited) {
-            console.log('🔄 Intentando subir con Google Drive...');
-            await handleDriveUpload(audioFile, coverInput.files[0], songName, artistName, songGenre);
-        } else {
-            console.log('🔄 Google Drive no disponible, usando localStorage');
-            throw new Error('Google Drive no disponible');
-        }
+        // Usamos la nueva función para comunicarnos con el Apps Script
+        const result = await uploadToGoogleScript(audioFile, coverInput.files[0], songName, artistName, songGenre);
+
+        // Guardar metadata de la canción con la URL y ID devueltos por GAS
+        await saveSongToLibrary(
+            result.downloadUrl, 
+            result.coverUrl, 
+            songName, 
+            artistName, 
+            songGenre, 
+            audioFile, 
+            result.driveId
+        );
+        showNotification('🎉 ¡Canción subida exitosamente a Google Drive!', 'success');
 
     } catch (error) {
-        console.error('❌ Error con Google Drive:', error);
+        console.error('❌ Error con Apps Script/Drive:', error);
         
-        // Fallback a localStorage
-        showNotification('⚠️ Usando almacenamiento local', 'warning');
+        // Fallback a localStorage si falla la subida a GAS
+        showNotification(`⚠️ Fallo en la subida a Drive. Usando almacenamiento local. Error: ${error.message}`, 'warning');
         await handleLocalUpload(audioFile, coverInput.files[0], songName, artistName, songGenre);
     } finally {
         showLoading(false);
@@ -281,80 +213,46 @@ async function handleUpload(e) {
     }
 }
 
-async function handleDriveUpload(audioFile, coverFile, songName, artistName, songGenre) {
-    showLoading(true, '🔐 Autenticando con Google Drive...');
-    await authenticateDrive();
-
-    showLoading(true, '📤 Subiendo canción a Google Drive...');
+// Envía el archivo al Web App de Google Apps Script
+async function uploadToGoogleScript(audioFile, coverFile, songName, artistName, songGenre) {
+    const formData = new FormData();
     
-    try {
-        // Subir archivo de audio
-        const audioMetadata = {
-            name: `${songName} - ${artistName}.mp3`,
-            mimeType: audioFile.type,
-        };
+    // El 'name' del archivo DEBE ser 'songFile' para que el GAS lo reciba
+    formData.append('songFile', audioFile, audioFile.name);
+    
+    // Opcional: pasar metadatos extra
+    formData.append('songName', songName);
+    formData.append('artistName', artistName);
 
-        const audioForm = new FormData();
-        audioForm.append('metadata', new Blob([JSON.stringify(audioMetadata)], {type: 'application/json'}));
-        audioForm.append('file', audioFile);
+    const response = await fetch(GAS_UPLOAD_URL, {
+        method: 'POST',
+        body: formData 
+    });
+    
+    // El GAS devuelve un cuerpo JSON. Lo procesamos.
+    const result = await response.json();
 
-        const audioResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + gapi.client.getToken().access_token
-            },
-            body: audioForm
-        });
-
-        if (!audioResponse.ok) {
-            const errorText = await audioResponse.text();
-            throw new Error(`Error HTTP ${audioResponse.status}: ${errorText}`);
-        }
-
-        const audioData = await audioResponse.json();
-        console.log('✅ Audio subido a Drive:', audioData);
-
-        // Crear URL de descarga directa
-        const downloadUrl = `https://drive.google.com/uc?id=${audioData.id}&export=download`;
-
-        // Subir portada si existe
-        let coverUrl = getDefaultCover(songGenre);
-        if (coverFile) {
-            const coverMetadata = {
-                name: `Cover - ${songName}.jpg`,
-                mimeType: coverFile.type,
-            };
-
-            const coverForm = new FormData();
-            coverForm.append('metadata', new Blob([JSON.stringify(coverMetadata)], {type: 'application/json'}));
-            coverForm.append('file', coverFile);
-
-            const coverResponse = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + gapi.client.getToken().access_token
-                },
-                body: coverForm
-            });
-
-            if (coverResponse.ok) {
-                const coverData = await coverResponse.json();
-                coverUrl = `https://drive.google.com/uc?id=${coverData.id}&export=download`;
-                console.log('✅ Portada subida a Drive:', coverData);
-            }
-        }
-
-        // Guardar metadata de la canción
-        await saveSongToLibrary(downloadUrl, coverUrl, songName, artistName, songGenre, audioFile, audioData.id);
-        showNotification('🎉 ¡Canción subida exitosamente a Google Drive!', 'success');
-        
-    } catch (error) {
-        console.error('❌ Error en subida a Drive:', error);
-        throw error; // Re-lanzar el error para manejarlo en handleUpload
+    if (result.error) {
+         // Lanza un error si el script devolvió un error (ej. carpeta no encontrada)
+        throw new Error(result.error);
     }
+
+    // Manejar la portada: En este enfoque simple, la portada se maneja localmente
+    let coverUrl = getDefaultCover(songGenre);
+    if (coverFile) {
+        coverUrl = URL.createObjectURL(coverFile);
+    }
+    
+    // Retorna los datos de Drive y la URL de la portada para saveSongToLibrary
+    return { 
+        driveId: result.driveId, 
+        downloadUrl: result.downloadUrl, 
+        coverUrl: coverUrl 
+    };
 }
 
-// ... (el resto del código se mantiene igual desde handleLocalUpload hasta el final)
+
+// ========== ALMACENAMIENTO LOCAL Y METADATA (Sin cambios) ==========
 
 async function handleLocalUpload(audioFile, coverFile, songName, artistName, songGenre) {
     const duration = await getAudioDuration(audioFile);
@@ -434,7 +332,11 @@ async function saveSongToLibrary(audioUrl, coverUrl, songName, artistName, songG
     showHomeSection();
 }
 
-// ========== ALMACENAMIENTO LOCAL ==========
+// ... (Todas las demás funciones como loadSongsFromLocalStorage, displaySongs, 
+// playSong, updatePlayButton, formatTime, etc., se mantienen sin cambios ya que 
+// tu estructura HTML y IDs son consistentes).
+// ...
+
 function loadSongsFromLocalStorage() {
     try {
         showLoading(true, '🎵 Cargando biblioteca...');
@@ -481,7 +383,6 @@ function saveSongsToLocalStorage(songs) {
     }
 }
 
-// ========== INTERFAZ DE CANCIONES ==========
 function displaySongs(songsToDisplay) {
     const container = document.getElementById('songs-container');
     
@@ -501,8 +402,8 @@ function displaySongs(songsToDisplay) {
                 ${song.duration ? `<div class="duration-badge">${song.formattedDuration}</div>` : ''}
             </div>
             <div class="song-info">
-                <h3 class="song-title" title="${song.name}">${escapeHtml(song.name)}</h3>
-                <p class="song-artist" title="${song.artist}">${escapeHtml(song.artist)}</p>
+                <h3 class="song-title" title="${escapeHtml(song.name)}">${escapeHtml(song.name)}</h3>
+                <p class="song-artist" title="${escapeHtml(song.artist)}">${escapeHtml(song.artist)}</p>
                 <div class="song-meta">
                     <span class="song-genre">${capitalizeFirst(song.genre)}</span>
                     <span class="song-size">${song.formattedSize}</span>
@@ -559,7 +460,7 @@ function updateStats(songs) {
     document.getElementById('total-size').innerHTML = `<strong>${formatFileSize(totalSize)}</strong> total`;
 }
 
-// ========== REPRODUCTOR ==========
+// ========== REPRODUCTOR (Sin cambios) ==========
 function playSong(index) {
     if (index < 0 || index >= songs.length) return;
     
@@ -570,7 +471,8 @@ function playSong(index) {
     document.getElementById('current-song-artist').textContent = song.artist;
     document.getElementById('current-song-img').src = song.imageUrl;
     
-    audioPlayer.src = song.fileUrl;
+    // El audioPlayer usa el fileUrl, que ahora es la downloadUrl de Drive
+    audioPlayer.src = song.fileUrl; 
     audioPlayer.load();
     
     audioPlayer.play().then(() => {
@@ -662,6 +564,7 @@ function downloadSong(songId) {
     }
     
     try {
+        // Enlace de descarga directo desde Drive (o local)
         const link = document.createElement('a');
         link.href = song.fileUrl;
         link.download = `${song.name} - ${song.artist}.mp3`;
@@ -676,7 +579,7 @@ function downloadSong(songId) {
     }
 }
 
-// ========== NAVEGACIÓN ==========
+// ========== NAVEGACIÓN Y UTILIDADES (Sin cambios) ==========
 function showHomeSection(e) {
     if (e) e.preventDefault();
     document.getElementById('upload-section').classList.add('hidden');
@@ -733,7 +636,7 @@ function performSearch() {
     }
 }
 
-// ========== UTILIDADES ==========
+// ========== UTILIDADES (Sin cambios) ==========
 function getDefaultCover(genre) {
     const colors = {
         rock: '#e74c3c', pop: '#9b59b6', jazz: '#f39c12', hiphop: '#34495e',
@@ -806,7 +709,7 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-// ========== LOADING & NOTIFICATIONS ==========
+// ========== LOADING & NOTIFICATIONS (Sin cambios) ==========
 function showLoading(show, message = '') {
     isLoading = show;
     if (show) {
@@ -871,4 +774,4 @@ window.downloadSong = downloadSong;
 window.showUploadSection = showUploadSection;
 window.loadSongs = loadSongsFromLocalStorage;
 
-console.log('🎵 MusicStream (Firebase Auth + Google Drive) cargado correctamente');
+console.log('🎵 MusicStream (Firebase Auth + Google Apps Script) cargado correctamente');
