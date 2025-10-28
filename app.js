@@ -1,4 +1,4 @@
-// app.js - VERSIÓN FINAL CON GOOGLE APPS SCRIPT
+// app.js - VERSIÓN COMPLETA CORREGIDA CON GOOGLE APPS SCRIPT
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -11,7 +11,7 @@ const firebaseConfig = {
 };
 
 // 🎯 Tu URL de la aplicación web de Google Apps Script (Web App URL)
-const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxSxe5whVpKb6rLNEUmcsPPC_DyO1mz3PeDQx4d6azob9owckLvJ_Zdxv_JiGjAnTr-/exec';
+const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxfjnecG5gSdEbD_ATyxwNBL9ovwOp0VLlz5ofLBI_v3P6M8q2PhReuQIWFnjczw0sK/exec';
 
 // Inicializar Firebase
 firebase.initializeApp(firebaseConfig);
@@ -32,13 +32,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function initApp() {
-    // Ya no se necesita initializeGoogleDrive
     await checkFirebaseAuthState();
     setupEventListeners();
     loadSongsFromLocalStorage();
+    testGASConnection();
 }
 
-// ========== FIREBASE AUTH (Sin cambios) ==========
+// ========== FIREBASE AUTH ==========
 async function checkFirebaseAuthState() {
     auth.onAuthStateChanged((user) => {
         if (user) {
@@ -58,11 +58,14 @@ async function signInWithGoogle() {
     try {
         showLoading(true, 'Iniciando sesión con Google...');
         const provider = new firebase.auth.GoogleAuthProvider();
+        provider.addScope('https://www.googleapis.com/auth/drive.file');
         const result = await auth.signInWithPopup(provider);
         console.log('✅ Login exitoso con Firebase:', result.user.displayName);
+        showNotification('¡Bienvenido ' + result.user.displayName + '!', 'success');
     } catch (error) {
         console.error('❌ Error iniciando sesión:', error);
         showNotification('Error al iniciar sesión: ' + error.message, 'error');
+    } finally {
         showLoading(false);
     }
 }
@@ -85,7 +88,7 @@ async function signOut() {
     }
 }
 
-// ========== INTERFAZ DE USUARIO (Sin cambios) ==========
+// ========== INTERFAZ DE USUARIO ==========
 function showLoginSection() {
     document.getElementById('login-section').classList.remove('hidden');
     document.getElementById('main-content').classList.add('hidden');
@@ -116,25 +119,25 @@ function updateUserProfile() {
 function setupEventListeners() {
     console.log('🔧 Configurando event listeners...');
     
-    // Auth (Usa los IDs de tu HTML)
+    // Auth
     document.getElementById('google-login').addEventListener('click', signInWithGoogle);
     document.getElementById('login-btn').addEventListener('click', showLoginSection);
     document.getElementById('logout-btn').addEventListener('click', signOut);
     
-    // Navegación (Usa los IDs de tu HTML)
+    // Navegación
     document.getElementById('home-link').addEventListener('click', showHomeSection);
     document.getElementById('upload-link').addEventListener('click', showUploadSection);
     document.getElementById('stats-link').addEventListener('click', showStats);
     
-    // Búsqueda y filtros (Usa los IDs de tu HTML)
+    // Búsqueda y filtros
     document.getElementById('search-btn').addEventListener('click', performSearch);
     document.getElementById('search-input').addEventListener('input', performSearch);
     document.getElementById('genre-filter').addEventListener('change', performSearch);
     
-    // Upload (Usa el ID de tu HTML)
+    // Upload
     document.getElementById('upload-form').addEventListener('submit', handleUpload);
     
-    // Reproductor (Usa los IDs de tu HTML)
+    // Reproductor
     document.getElementById('play-btn').addEventListener('click', togglePlay);
     document.getElementById('prev-btn').addEventListener('click', playPrevious);
     document.getElementById('next-btn').addEventListener('click', playNext);
@@ -150,8 +153,21 @@ function setupEventListeners() {
     console.log('✅ Event listeners configurados');
 }
 
-// ========== GOOGLE APPS SCRIPT UPLOAD (Lógica central) ==========
+// ========== TEST CONEXIÓN GOOGLE APPS SCRIPT ==========
+async function testGASConnection() {
+    try {
+        console.log('🔗 Probando conexión con Google Apps Script...');
+        const response = await fetch(GAS_UPLOAD_URL);
+        const result = await response.json();
+        console.log('✅ Conexión GAS exitosa:', result);
+        showNotification('Conexión con Google Drive establecida', 'success');
+    } catch (error) {
+        console.error('❌ Error conectando con GAS:', error);
+        showNotification('Advertencia: No se pudo conectar con Google Drive', 'warning');
+    }
+}
 
+// ========== GOOGLE APPS SCRIPT UPLOAD ==========
 async function handleUpload(e) {
     e.preventDefault();
     
@@ -169,8 +185,26 @@ async function handleUpload(e) {
     
     const audioFile = fileInput.files[0];
 
-    if (!audioFile || !songName || !artistName || !songGenre) {
+    if (!audioFile) {
+        showNotification('❌ Selecciona un archivo de audio', 'error');
+        return;
+    }
+
+    if (!songName || !artistName || !songGenre) {
         showNotification('❌ Completa todos los campos requeridos', 'error');
+        return;
+    }
+
+    // Validar tipo de archivo
+    const validTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/aac'];
+    if (!validTypes.includes(audioFile.type)) {
+        showNotification('❌ Formato de audio no soportado. Usa MP3, WAV, OGG o AAC', 'error');
+        return;
+    }
+
+    // Validar tamaño (50MB máximo)
+    if (audioFile.size > 50 * 1024 * 1024) {
+        showNotification('❌ El archivo es demasiado grande. Máximo 50MB', 'error');
         return;
     }
 
@@ -181,10 +215,10 @@ async function handleUpload(e) {
         submitBtn.textContent = '⏳ Subiendo...';
         submitBtn.style.opacity = '0.7';
 
-        // Usamos la nueva función para comunicarnos con el Apps Script
+        // Subir a Google Apps Script
         const result = await uploadToGoogleScript(audioFile, coverInput.files[0], songName, artistName, songGenre);
 
-        // Guardar metadata de la canción con la URL y ID devueltos por GAS
+        // Guardar metadata de la canción
         await saveSongToLibrary(
             result.downloadUrl, 
             result.coverUrl, 
@@ -194,7 +228,9 @@ async function handleUpload(e) {
             audioFile, 
             result.driveId
         );
+        
         showNotification('🎉 ¡Canción subida exitosamente a Google Drive!', 'success');
+        document.getElementById('upload-form').reset();
 
     } catch (error) {
         console.error('❌ Error con Apps Script/Drive:', error);
@@ -217,43 +253,50 @@ async function handleUpload(e) {
 async function uploadToGoogleScript(audioFile, coverFile, songName, artistName, songGenre) {
     const formData = new FormData();
     
-    // El 'name' del archivo DEBE ser 'songFile' para que el GAS lo reciba
-    formData.append('songFile', audioFile, audioFile.name);
+    // Agregar el archivo con el nombre correcto
+    formData.append('songFile', audioFile);
     
-    // Opcional: pasar metadatos extra
+    // Agregar metadatos como campos separados
     formData.append('songName', songName);
     formData.append('artistName', artistName);
+    formData.append('genre', songGenre);
+    formData.append('timestamp', new Date().toISOString());
+    formData.append('uploader', currentUser.displayName || currentUser.email);
 
+    console.log('📤 Enviando archivo a GAS:', audioFile.name, audioFile.size, 'bytes');
+    
     const response = await fetch(GAS_UPLOAD_URL, {
         method: 'POST',
-        body: formData 
+        body: formData
+        // No establecer Content-Type manualmente - el navegador lo hace automáticamente
     });
     
-    // El GAS devuelve un cuerpo JSON. Lo procesamos.
+    if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
+    }
+    
     const result = await response.json();
+    console.log('📥 Respuesta de GAS:', result);
 
     if (result.error) {
-         // Lanza un error si el script devolvió un error (ej. carpeta no encontrada)
         throw new Error(result.error);
     }
 
-    // Manejar la portada: En este enfoque simple, la portada se maneja localmente
+    // Manejar la portada
     let coverUrl = getDefaultCover(songGenre);
     if (coverFile) {
         coverUrl = URL.createObjectURL(coverFile);
     }
     
-    // Retorna los datos de Drive y la URL de la portada para saveSongToLibrary
     return { 
         driveId: result.driveId, 
         downloadUrl: result.downloadUrl, 
-        coverUrl: coverUrl 
+        coverUrl: coverUrl,
+        fileName: result.fileName
     };
 }
 
-
-// ========== ALMACENAMIENTO LOCAL Y METADATA (Sin cambios) ==========
-
+// ========== ALMACENAMIENTO LOCAL Y METADATA ==========
 async function handleLocalUpload(audioFile, coverFile, songName, artistName, songGenre) {
     const duration = await getAudioDuration(audioFile);
     
@@ -326,16 +369,10 @@ async function saveSongToLibrary(audioUrl, coverUrl, songName, artistName, songG
     window.songs = currentSongs;
     saveSongsToLocalStorage(currentSongs);
     
-    document.getElementById('upload-form').reset();
     displaySongs(currentSongs);
     updateStats(currentSongs);
     showHomeSection();
 }
-
-// ... (Todas las demás funciones como loadSongsFromLocalStorage, displaySongs, 
-// playSong, updatePlayButton, formatTime, etc., se mantienen sin cambios ya que 
-// tu estructura HTML y IDs son consistentes).
-// ...
 
 function loadSongsFromLocalStorage() {
     try {
@@ -408,7 +445,7 @@ function displaySongs(songsToDisplay) {
                     <span class="song-genre">${capitalizeFirst(song.genre)}</span>
                     <span class="song-size">${song.formattedSize}</span>
                     ${song.uploader_name ? `<span class="uploader">Subido por: ${song.uploader_name}</span>` : ''}
-                    <span class="storage-badge">${song.storage === 'google_drive' ? '☁️ Drive' : '💾 Local'}</span>
+                    <span class="storage-badge ${song.storage}">${song.storage === 'google_drive' ? '☁️ Drive' : '💾 Local'}</span>
                 </div>
             </div>
             <div class="song-actions">
@@ -454,13 +491,14 @@ function updateStats(songs) {
     const totalSize = songs.reduce((sum, song) => sum + (song.file_size || 0), 0);
     const genres = new Set(songs.map(song => song.genre));
     const driveSongs = songs.filter(song => song.storage === 'google_drive').length;
+    const localSongs = songs.filter(song => song.storage === 'local').length;
     
-    document.getElementById('total-songs').innerHTML = `<strong>${songs.length}</strong> canciones (${driveSongs} en Drive)`;
+    document.getElementById('total-songs').innerHTML = `<strong>${songs.length}</strong> canciones (${driveSongs} en Drive, ${localSongs} local)`;
     document.getElementById('total-genres').innerHTML = `<strong>${genres.size}</strong> géneros`;
     document.getElementById('total-size').innerHTML = `<strong>${formatFileSize(totalSize)}</strong> total`;
 }
 
-// ========== REPRODUCTOR (Sin cambios) ==========
+// ========== REPRODUCTOR ==========
 function playSong(index) {
     if (index < 0 || index >= songs.length) return;
     
@@ -471,7 +509,6 @@ function playSong(index) {
     document.getElementById('current-song-artist').textContent = song.artist;
     document.getElementById('current-song-img').src = song.imageUrl;
     
-    // El audioPlayer usa el fileUrl, que ahora es la downloadUrl de Drive
     audioPlayer.src = song.fileUrl; 
     audioPlayer.load();
     
@@ -564,7 +601,6 @@ function downloadSong(songId) {
     }
     
     try {
-        // Enlace de descarga directo desde Drive (o local)
         const link = document.createElement('a');
         link.href = song.fileUrl;
         link.download = `${song.name} - ${song.artist}.mp3`;
@@ -579,7 +615,7 @@ function downloadSong(songId) {
     }
 }
 
-// ========== NAVEGACIÓN Y UTILIDADES (Sin cambios) ==========
+// ========== NAVEGACIÓN Y UTILIDADES ==========
 function showHomeSection(e) {
     if (e) e.preventDefault();
     document.getElementById('upload-section').classList.add('hidden');
@@ -609,7 +645,8 @@ function showStats() {
     const totalSize = songs.reduce((sum, song) => sum + (song.file_size || 0), 0);
     const genres = new Set(songs.map(song => song.genre));
     const driveSongs = songs.filter(song => song.storage === 'google_drive').length;
-    showNotification(`📊 Estadísticas: ${songs.length} canciones (${driveSongs} en Drive) | ${genres.size} géneros | ${formatFileSize(totalSize)} total`, 'info');
+    const localSongs = songs.filter(song => song.storage === 'local').length;
+    showNotification(`📊 Estadísticas: ${songs.length} canciones (${driveSongs} Drive, ${localSongs} local) | ${genres.size} géneros | ${formatFileSize(totalSize)} total`, 'info');
 }
 
 function performSearch() {
@@ -636,7 +673,7 @@ function performSearch() {
     }
 }
 
-// ========== UTILIDADES (Sin cambios) ==========
+// ========== UTILIDADES ==========
 function getDefaultCover(genre) {
     const colors = {
         rock: '#e74c3c', pop: '#9b59b6', jazz: '#f39c12', hiphop: '#34495e',
@@ -688,90 +725,4 @@ function formatDuration(seconds) {
 }
 
 function formatFileSize(bytes) {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-function capitalizeFirst(string) {
-    return string ? string.charAt(0).toUpperCase() + string.slice(1) : '';
-}
-
-function escapeHtml(unsafe) {
-    if (!unsafe) return '';
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-// ========== LOADING & NOTIFICATIONS (Sin cambios) ==========
-function showLoading(show, message = '') {
-    isLoading = show;
-    if (show) {
-        document.body.style.cursor = 'wait';
-        let loadingOverlay = document.getElementById('global-loading-overlay');
-        if (!loadingOverlay) {
-            loadingOverlay = document.createElement('div');
-            loadingOverlay.id = 'global-loading-overlay';
-            loadingOverlay.style.cssText = `
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
-                align-items: center; justify-content: center; z-index: 9999;
-                color: white; font-family: inherit; backdrop-filter: blur(5px);
-            `;
-            document.body.appendChild(loadingOverlay);
-        }
-        loadingOverlay.innerHTML = `
-            <style>@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-            .loading-spinner{width:60px;height:60px;border:5px solid rgba(108,92,231,0.3);
-            border-top:5px solid #6c5ce7;border-radius:50%;animation:spin 1s linear infinite;
-            margin-bottom:20px;}</style>
-            <div class="loading-spinner"></div>
-            <div style="font-size:18px;margin-bottom:10px;">${message}</div>
-            <div style="font-size:14px;opacity:0.8;">Por favor, espera</div>
-        `;
-        loadingOverlay.style.display = 'flex';
-    } else {
-        document.body.style.cursor = 'default';
-        const loadingOverlay = document.getElementById('global-loading-overlay');
-        if (loadingOverlay) loadingOverlay.style.display = 'none';
-    }
-}
-
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.style.cssText = `
-        position: fixed; top: 20px; right: 20px; padding: 15px 20px;
-        border-radius: 8px; color: white; z-index: 10000; max-width: 400px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: slideInRight 0.3s ease;
-        font-family: system-ui, -apple-system, sans-serif;
-    `;
-    const colors = { success: '#00b894', error: '#d63031', warning: '#fdcb6e', info: '#0984e3' };
-    notification.style.background = colors[type] || colors.info;
-    if (type === 'warning') notification.style.color = '#2d3436';
-    notification.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-            <span>${message}</span>
-            <button onclick="this.parentElement.parentElement.remove()" 
-                    style="background: none; border: none; color: inherit; font-size: 18px; cursor: pointer; margin-left: 10px;">
-                &times;
-            </button>
-        </div>
-    `;
-    document.body.appendChild(notification);
-    setTimeout(() => { if (notification.parentNode) notification.remove(); }, 5000);
-}
-
-// Funciones globales
-window.playSong = playSong;
-window.downloadSong = downloadSong;
-window.showUploadSection = showUploadSection;
-window.loadSongs = loadSongsFromLocalStorage;
-
-console.log('🎵 MusicStream (Firebase Auth + Google Apps Script) cargado correctamente');
+    if (!bytes ||
