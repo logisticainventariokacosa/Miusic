@@ -1,4 +1,4 @@
-// app.js - VERSIÓN COMPLETA CORREGIDA CON GOOGLE APPS SCRIPT
+// app.js - VERSIÓN COMPLETA CORREGIDA
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -10,11 +10,11 @@ const firebaseConfig = {
     appId: "1:287662125263:web:80500af19c46b495d607ba",
 };
 
-// 🎯 Tu URL de la aplicación web de Google Apps Script (Web App URL)
-const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxfjnecG5gSdEbD_ATyxwNBL9ovwOp0VLlz5ofLBI_v3P6M8q2PhReuQIWFnjczw0sK/exec';
+// 🎯 Tu URL de la aplicación web de Google Apps Script
+const GAS_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbxSxe5whVpKb6rLNEUmcsPPC_DyO1mz3PeDQx4d6azob9owckLvJ_Zdxv_JiGjAnTr-/exec';
 
 // Inicializar Firebase
-firebase.initializeApp(firebaseConfig);
+const app = firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 
 // Variables globales
@@ -27,25 +27,31 @@ let currentUser = null;
 
 // ========== INICIALIZACIÓN ==========
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🎵 Iniciando MusicStream (Firebase Auth + Google Apps Script)...');
+    console.log('🎵 Iniciando MusicStream...');
     initApp();
 });
 
 async function initApp() {
-    await checkFirebaseAuthState();
-    setupEventListeners();
-    loadSongsFromLocalStorage();
-    testGASConnection();
+    try {
+        await checkFirebaseAuthState();
+        setupEventListeners();
+        loadSongsFromLocalStorage();
+        testGASConnection();
+        console.log('✅ App inicializada correctamente');
+    } catch (error) {
+        console.error('❌ Error inicializando app:', error);
+    }
 }
 
 // ========== FIREBASE AUTH ==========
 async function checkFirebaseAuthState() {
     auth.onAuthStateChanged((user) => {
+        console.log('🔐 Estado de autenticación:', user ? 'Conectado' : 'Desconectado');
         if (user) {
             currentUser = user;
             showMainContent();
             updateUserProfile();
-            console.log('✅ Usuario autenticado con Firebase:', user.displayName);
+            console.log('✅ Usuario autenticado:', user.displayName);
         } else {
             currentUser = null;
             showLoginSection();
@@ -60,7 +66,7 @@ async function signInWithGoogle() {
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.addScope('https://www.googleapis.com/auth/drive.file');
         const result = await auth.signInWithPopup(provider);
-        console.log('✅ Login exitoso con Firebase:', result.user.displayName);
+        console.log('✅ Login exitoso:', result.user.displayName);
         showNotification('¡Bienvenido ' + result.user.displayName + '!', 'success');
     } catch (error) {
         console.error('❌ Error iniciando sesión:', error);
@@ -90,14 +96,16 @@ async function signOut() {
 
 // ========== INTERFAZ DE USUARIO ==========
 function showLoginSection() {
+    console.log('👤 Mostrando sección de login');
     document.getElementById('login-section').classList.remove('hidden');
     document.getElementById('main-content').classList.add('hidden');
-    document.getElementById('login-btn').classList.remove('hidden');
+    document.getElementById('login-btn').classList.add('hidden');
     document.getElementById('logout-btn').classList.add('hidden');
     document.getElementById('user-profile').classList.add('hidden');
 }
 
 function showMainContent() {
+    console.log('🏠 Mostrando contenido principal');
     document.getElementById('login-section').classList.add('hidden');
     document.getElementById('main-content').classList.remove('hidden');
     document.getElementById('login-btn').classList.add('hidden');
@@ -148,7 +156,11 @@ function setupEventListeners() {
     audioPlayer.addEventListener('timeupdate', updateProgress);
     audioPlayer.addEventListener('ended', playNext);
     audioPlayer.addEventListener('error', handleAudioError);
-    document.querySelector('.progress-bar').addEventListener('click', seek);
+    
+    const progressBar = document.querySelector('.progress-bar');
+    if (progressBar) {
+        progressBar.addEventListener('click', seek);
+    }
     
     console.log('✅ Event listeners configurados');
 }
@@ -170,6 +182,7 @@ async function testGASConnection() {
 // ========== GOOGLE APPS SCRIPT UPLOAD ==========
 async function handleUpload(e) {
     e.preventDefault();
+    console.log('📤 Iniciando subida de archivo...');
     
     if (!currentUser) {
         showNotification('❌ Debes iniciar sesión para subir canciones', 'error');
@@ -199,12 +212,6 @@ async function handleUpload(e) {
     const validTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/aac'];
     if (!validTypes.includes(audioFile.type)) {
         showNotification('❌ Formato de audio no soportado. Usa MP3, WAV, OGG o AAC', 'error');
-        return;
-    }
-
-    // Validar tamaño (50MB máximo)
-    if (audioFile.size > 50 * 1024 * 1024) {
-        showNotification('❌ El archivo es demasiado grande. Máximo 50MB', 'error');
         return;
     }
 
@@ -249,7 +256,6 @@ async function handleUpload(e) {
     }
 }
 
-// Envía el archivo al Web App de Google Apps Script
 async function uploadToGoogleScript(audioFile, coverFile, songName, artistName, songGenre) {
     const formData = new FormData();
     
@@ -268,7 +274,6 @@ async function uploadToGoogleScript(audioFile, coverFile, songName, artistName, 
     const response = await fetch(GAS_UPLOAD_URL, {
         method: 'POST',
         body: formData
-        // No establecer Content-Type manualmente - el navegador lo hace automáticamente
     });
     
     if (!response.ok) {
@@ -461,6 +466,7 @@ function displaySongs(songsToDisplay) {
         </div>
     `).join('');
     
+    // Agregar event listeners a los botones dinámicos
     container.querySelectorAll('.btn-play, .btn-play-overlay').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const index = parseInt(e.currentTarget.getAttribute('data-index'));
@@ -563,8 +569,10 @@ function setVolume() {
 
 function updatePlayButton() {
     const playBtn = document.getElementById('play-btn');
-    playBtn.textContent = isPlaying ? '⏸' : '▶';
-    playBtn.classList.toggle('playing', isPlaying);
+    if (playBtn) {
+        playBtn.textContent = isPlaying ? '⏸' : '▶';
+        playBtn.classList.toggle('playing', isPlaying);
+    }
 }
 
 function updateDuration() {
@@ -725,4 +733,90 @@ function formatDuration(seconds) {
 }
 
 function formatFileSize(bytes) {
-    if (!bytes ||
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function capitalizeFirst(string) {
+    return string ? string.charAt(0).toUpperCase() + string.slice(1) : '';
+}
+
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// ========== LOADING & NOTIFICATIONS ==========
+function showLoading(show, message = '') {
+    isLoading = show;
+    if (show) {
+        document.body.style.cursor = 'wait';
+        let loadingOverlay = document.getElementById('global-loading-overlay');
+        if (!loadingOverlay) {
+            loadingOverlay = document.createElement('div');
+            loadingOverlay.id = 'global-loading-overlay';
+            loadingOverlay.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+                align-items: center; justify-content: center; z-index: 9999;
+                color: white; font-family: inherit; backdrop-filter: blur(5px);
+            `;
+            document.body.appendChild(loadingOverlay);
+        }
+        loadingOverlay.innerHTML = `
+            <style>@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+            .loading-spinner{width:60px;height:60px;border:5px solid rgba(108,92,231,0.3);
+            border-top:5px solid #6c5ce7;border-radius:50%;animation:spin 1s linear infinite;
+            margin-bottom:20px;}</style>
+            <div class="loading-spinner"></div>
+            <div style="font-size:18px;margin-bottom:10px;">${message}</div>
+            <div style="font-size:14px;opacity:0.8;">Por favor, espera</div>
+        `;
+        loadingOverlay.style.display = 'flex';
+    } else {
+        document.body.style.cursor = 'default';
+        const loadingOverlay = document.getElementById('global-loading-overlay');
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+    }
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.style.cssText = `
+        position: fixed; top: 20px; right: 20px; padding: 15px 20px;
+        border-radius: 8px; color: white; z-index: 10000; max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: slideInRight 0.3s ease;
+        font-family: system-ui, -apple-system, sans-serif;
+    `;
+    const colors = { success: '#00b894', error: '#d63031', warning: '#fdcb6e', info: '#0984e3' };
+    notification.style.background = colors[type] || colors.info;
+    if (type === 'warning') notification.style.color = '#2d3436';
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span>${message}</span>
+            <button onclick="this.parentElement.parentElement.remove()" 
+                    style="background: none; border: none; color: inherit; font-size: 18px; cursor: pointer; margin-left: 10px;">
+                &times;
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => { if (notification.parentNode) notification.remove(); }, 5000);
+}
+
+// Funciones globales
+window.playSong = playSong;
+window.downloadSong = downloadSong;
+window.showUploadSection = showUploadSection;
+window.loadSongs = loadSongsFromLocalStorage;
+
+console.log('🎵 MusicStream cargado correctamente');
